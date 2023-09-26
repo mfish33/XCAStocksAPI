@@ -4,6 +4,7 @@
 import FoundationNetworking
 #endif
 import Foundation
+import Combine
 
 public protocol IStocksAPI {
     func fetchChartData(tickerSymbol: String, range: ChartRange) async throws -> ChartData?
@@ -12,6 +13,18 @@ public protocol IStocksAPI {
     func searchTickersRawData(query: String, isEquityTypeOnly: Bool) async throws -> (Data, URLResponse)
     func fetchQuotes(symbols: String) async throws -> [Quote]
     func fetchQuotesRawData(symbols: String) async throws -> (Data, URLResponse)
+}
+
+var crumb:Future<String, Never> = Future() { promise in
+    Task {
+        let _ = try! await URLSession.shared.data(from: URL(string: "https://fc.yahoo.com")!)
+        let crumbUrl = URL(string: "https://query2.finance.yahoo.com/v1/test/getcrumb")!
+        var crumbUrlReq = URLRequest(url: crumbUrl)
+        crumbUrlReq.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        let (crumbData, _) = try! await URLSession.shared.data(for: crumbUrlReq)
+        let crumbStr = String(data: crumbData, encoding: .utf8)!
+        promise(Result.success(crumbStr))
+    }
 }
 
 public struct XCAStocksAPI: IStocksAPI {
@@ -86,7 +99,7 @@ public struct XCAStocksAPI: IStocksAPI {
     }
     
     public func fetchQuotes(symbols: String) async throws -> [Quote] {
-        guard let url = urlForFetchQuotes(symbols: symbols) else { throw APIServiceError.invalidURL }
+        guard let url = await urlForFetchQuotes(symbols: symbols) else { throw APIServiceError.invalidURL }
         let (resp, statusCode): (QuoteResponse, Int) = try await fetch(url: url)
         if let error = resp.error {
             throw APIServiceError.httpStatusCodeFailed(statusCode: statusCode, error: error)
@@ -95,18 +108,20 @@ public struct XCAStocksAPI: IStocksAPI {
     }
     
     public func fetchQuotesRawData(symbols: String) async throws -> (Data, URLResponse) {
-        guard let url = urlForFetchQuotes(symbols: symbols) else { throw APIServiceError.invalidURL }
+        guard let url = await urlForFetchQuotes(symbols: symbols) else { throw APIServiceError.invalidURL }
         return try await session.data(from: url)
     }
     
-    private func urlForFetchQuotes(symbols: String) -> URL? {
+    private func urlForFetchQuotes(symbols: String) async -> URL? {
         guard var urlComp = URLComponents(string: "\(baseURL)/v7/finance/quote") else {
             return nil
         }
-        urlComp.queryItems = [ URLQueryItem(name: "symbols", value: symbols) ]
+        let crumbStr = await crumb.value
+        urlComp.queryItems = [ URLQueryItem(name: "symbols", value: symbols), URLQueryItem(name: "crumb", value: crumbStr) ]
+        
         return urlComp.url
     }
-    
+        
     private func fetch<D: Decodable>(url: URL) async throws -> (D, Int) {
         let (data, response) = try await session.data(from: url)
         let statusCode = try validateHTTPResponse(response: response)

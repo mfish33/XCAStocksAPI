@@ -5,7 +5,7 @@ import PackageDescription
 
 let package = Package(
     name: "XCAStocksAPI",
-    platforms: [.macOS(.v12), .iOS(.v13), .watchOS(.v8), .tvOS(.v13)],
+    platforms: [.macOS(.v12), .iOS(.v15), .watchOS(.v8), .tvOS(.v13)],
     products: [
         .library(
             name: "XCAStocksAPI",
